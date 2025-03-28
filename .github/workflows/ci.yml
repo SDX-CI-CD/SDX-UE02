@@ -55,7 +55,7 @@ jobs:
         run: |
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
-            -t ghcr.io/SDX-CI-CD/recipe-api:latest \
+            -t ghcr.io/sdx-ci-cd/recipe-api:latest \
             --push .
 
   scan:
@@ -76,7 +76,7 @@ jobs:
           sudo apt-get install trivy -y
 
       - name: Scan image from GHCR
-        run: trivy image ghcr.io/SDX-CI-CD/recipe-api:latest
+        run: trivy image ghcr.io/sdx-ci-cd/recipe-api:latest
 
       - name: Update Go dependencies
         run: |
