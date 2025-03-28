@@ -1,46 +1,37 @@
 # ---- Stage 1: Build ----
 FROM golang:1.24-alpine AS builder
 
-# Set secure environment variables
 ENV CGO_ENABLED=0 \
     GOOS=linux \
     GOARCH=amd64
 
 WORKDIR /app
 
-# Install build dependencies
+# hadolint ignore=DL3018
 RUN apk --no-cache add git
 
-# Copy dependency files first to cache dependencies
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy application source code
 COPY . .
 
-# Build the application
 RUN go build -o /app/recipes-app
 
 # ---- Stage 2: Run ----
-FROM alpine:latest
+FROM alpine:3.18
 
-# Security: Create a non-root user
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
 WORKDIR /app
 
-# Copy built binary from builder stage
 COPY --from=builder /app/recipes-app .
 
-# Use a non-root user
 USER appuser
 
-# Expose the application port (internal only)
 EXPOSE 8080
 
-# Health Check
+# HEALTHCHECK assumes you have a /health endpoint
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
   CMD curl --fail http://localhost:8080/health || exit 1
 
-# Start application
 CMD ["./recipes-app", "serve"]
