@@ -10,15 +10,15 @@ jobs:
     name: Lint Go + Dockerfile
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Install Go
+      - name: Set up Go
         uses: actions/setup-go@v4
         with:
           go-version: '1.21'
 
-      - name: GolangCI-Lint
+      - name: Lint Go code
         uses: golangci/golangci-lint-action@v3
         with:
           version: v1.54
@@ -30,11 +30,11 @@ jobs:
           dockerfile: Dockerfile
 
   build:
-    name: Build Multi-Arch Docker Image
+    name: Build Docker Image (multi-arch)
     needs: lint
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v3
 
       - name: Set up QEMU
@@ -43,43 +43,40 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
 
-      - name: Login to Docker Hub
-        uses: docker/login-action@v2
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-
-      - name: Build and Push Docker Image
+      - name: Build multi-arch Docker image (no push)
         run: |
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
-            -t yourdockerhubusername/sdx-app:latest \
-            --push .
+            -t sdx-app:latest \
+            --load .
 
   scan:
-    name: Scan Docker Image
+    name: Security Scan + Update Go Deps
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
       - name: Install Trivy
         run: |
           sudo apt-get update
           sudo apt-get install wget apt-transport-https gnupg lsb-release -y
           wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
-          echo deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main | sudo tee -a /etc/apt/sources.list.d/trivy.list
+          echo deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main | sudo tee /etc/apt/sources.list.d/trivy.list
           sudo apt-get update
           sudo apt-get install trivy -y
 
-      - name: Scan image
-        run: trivy image yourdockerhubusername/sdx-app:latest
+      - name: Scan Docker image
+        run: trivy image sdx-app:latest
 
-      - name: Update Go Dependencies
+      - name: Update Go dependencies
         run: |
           cd src
           go get -u ./...
 
   test:
-    name: API Integration Tests
+    name: Run API Integration Tests
     needs: scan
     runs-on: ubuntu-latest
     services:
@@ -96,14 +93,15 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Build and Run Docker Container
+      - name: Run app in Docker
         run: |
-          docker build -t sdx-app .
-          docker run -d -p 8080:8080 --name sdx-app --network host sdx-app
+          docker run -d -p 8080:8080 --network host --name sdx-app sdx-app:latest
 
-      - name: Run API Test Script
+      - name: Run API test script
         run: python3 api-test-example.py
+
