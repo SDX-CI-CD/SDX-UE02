@@ -20,7 +20,7 @@ RUN go mod download
 COPY src/. .
 
 # Build the application (entry point is in cmd/)
-RUN go build -o /app/recipes-app ./cmd
+RUN go build -o /app/recipes-app ./cmd && chmod +x /app/recipes-app
 
 # ---- Stage 2: Run ----
 FROM alpine:3.18
