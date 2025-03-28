@@ -1,28 +1,46 @@
-# syntax=docker/dockerfile:1
+# ---- Stage 1: Build ----
+FROM golang:1.24-alpine AS builder
 
-##
-## Build
-##
-FROM golang:1.24-bullseye AS build
+# Set secure environment variables
+ENV CGO_ENABLED=0 \
+    GOOS=linux \
+    GOARCH=amd64
 
 WORKDIR /app
 
-COPY src ./
-RUN go mod download \
-    && go build -o /recipe-api
+# Install build dependencies
+RUN apk --no-cache add git
 
-##
-## Deploy
-##
-FROM debian:bullseye-slim
+# Copy dependency files first to cache dependencies
+COPY go.mod go.sum ./
+RUN go mod download
 
-RUN useradd -s /bin/bash recipe
+# Copy application source code
+COPY . .
 
-WORKDIR /
-COPY --from=build /recipe-api /recipe-api
+# Build the application
+RUN go build -o /app/recipes-app
+
+# ---- Stage 2: Run ----
+FROM alpine:latest
+
+# Security: Create a non-root user
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
+WORKDIR /app
+
+# Copy built binary from builder stage
+COPY --from=builder /app/recipes-app .
+
+# Use a non-root user
+USER appuser
+
+# Expose the application port (internal only)
 EXPOSE 8080
 
-USER recipe
+# Health Check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+  CMD curl --fail http://localhost:8080/health || exit 1
 
-ENTRYPOINT ["/recipe-api"]
-CMD [ "serve" ]
+# Start application
+CMD ["./recipes-app", "serve"]
