@@ -10,7 +10,7 @@ jobs:
     name: Lint Go + Dockerfile
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v3
 
       - name: Set up Go
@@ -28,13 +28,13 @@ jobs:
         uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: Dockerfile
-          
+
   build:
-    name: Build Multi-Arch Docker Image
+    name: Build & Push Multi-Arch Docker Image to GHCR
     needs: lint
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v3
 
       - name: Set up QEMU
@@ -43,26 +43,26 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
 
-      - name: Create a Buildx builder
-        run: |
-          docker buildx create --name multiarch --use
-          docker buildx inspect --bootstrap
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build multi-arch Docker image (no push to Docker Hub)
+      - name: Build and push multi-arch Docker image to GHCR
         run: |
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
-            -t sdx-app:latest \
-            --push \
-            --output=type=registry \
-            .
+            -t ghcr.io/SDX-CI-CD/recipe-api:latest \
+            --push .
 
   scan:
-    name: Security Scan + Update Go Deps
+    name: Scan Image + Update Go Deps
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v3
 
       - name: Install Trivy
@@ -74,8 +74,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install trivy -y
 
-      - name: Scan Docker image
-        run: trivy image sdx-app:latest
+      - name: Scan image from GHCR
+        run: trivy image ghcr.io/SDX-CI-CD/recipe-api:latest
 
       - name: Update Go dependencies
         run: |
@@ -102,13 +102,19 @@ jobs:
           --health-retries 5
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v3
+
+      - name: Build test image locally
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            -t recipe-api:local \
+            --load .
 
       - name: Run app in Docker
         run: |
-          docker run -d -p 8080:8080 --network host --name sdx-app sdx-app:latest
+          docker run -d -p 8080:8080 --network host --name recipe-api recipe-api:local
 
       - name: Run API test script
         run: python3 api-test-example.py
-
