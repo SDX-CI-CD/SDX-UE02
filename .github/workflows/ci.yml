@@ -126,9 +126,17 @@ jobs:
             -t recipe-api:local \
             --load .
 
-      - name: Run app container
+      - name: Run app container with DB env vars
         run: |
-          docker run -d -p 8080:8080 --name recipe-api recipe-api:local
+          docker run -d -p 8080:8080 \
+            --name recipe-api \
+            --network host \
+            -e db_host=localhost \
+            -e db_port=5432 \
+            -e db_name=recipes \
+            -e db_user=test \
+            -e db_password=test \
+            recipe-api:local
 
       - name: Print container logs (early)
         run: docker logs recipe-api || true
