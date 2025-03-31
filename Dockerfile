@@ -21,7 +21,7 @@ RUN go mod download
 COPY src/. .
 
 # Build the application
-RUN env GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o /app/recipes-app ./cmd && chmod +x /app/recipes-app && file /app/recipes-app
+RUN env GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o /app/recipes-app ./main.go && chmod +x /app/recipes-app && file /app/recipes-app
 
 # ---- Stage 2: Run ----
 FROM alpine:3.18
