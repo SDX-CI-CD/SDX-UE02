@@ -11,7 +11,7 @@ ENV CGO_ENABLED=0 \
 WORKDIR /app
 
 # hadolint ignore=DL3018
-RUN apk --no-cache add git
+RUN apk --no-cache add git file
 
 # Copy go module files from src/
 COPY src/go.mod src/go.sum ./
