@@ -130,6 +130,9 @@ jobs:
         run: |
           docker run -d -p 8080:8080 --name recipe-api recipe-api:local
 
+      - name: Print container logs (early)
+        run: docker logs recipe-api || true
+
       - name: Wait for app to be ready
         run: |
           for i in {1..10}; do
