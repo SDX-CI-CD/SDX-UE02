@@ -16,7 +16,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.24'
+          go-version: '1.20'
 
       - name: Download dependencies
         run: |
@@ -27,7 +27,7 @@ jobs:
       - name: Lint Go code
         uses: golangci/golangci-lint-action@v3
         with:
-          version: v1.57.3
+          version: v1.54
           working-directory: src
           args: --timeout=3m
 
