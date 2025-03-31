@@ -20,8 +20,8 @@ RUN go mod download
 # Copy full source code from src/
 COPY src/. .
 
-# Build the application (entry point is in cmd/)
-RUN go build -o /app/recipes-app ./cmd && chmod +x /app/recipes-app
+# Build the application
+RUN env GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o /app/recipes-app ./cmd && chmod +x /app/recipes-app
 
 # ---- Stage 2: Run ----
 FROM alpine:3.18
