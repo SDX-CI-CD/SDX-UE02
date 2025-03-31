@@ -128,7 +128,7 @@ jobs:
 
       - name: Run app container
         run: |
-          docker run -d -p 8080:8080 --network host --name recipe-api recipe-api:local
+          docker run -d -p 8080:8080 --name recipe-api recipe-api:local
 
       - name: Wait for app to be ready
         run: |
