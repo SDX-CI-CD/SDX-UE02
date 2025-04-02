@@ -64,10 +64,10 @@ jobs:
       - name: Run Trivy vulnerability scan
         run: trivy image --scanners vuln recipe-api:latest
 
-      - name: Set up Go 1.19
+      - name: Set up Go 1.23 (for updating dependencies only)
         uses: actions/setup-go@v4
         with:
-          go-version: '1.19'
+          go-version: '1.23'
 
       - name: Update Go dependencies
         working-directory: ./src
