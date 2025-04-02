@@ -10,174 +10,95 @@ jobs:
     name: Lint Go + Dockerfile
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
-      - name: Set up Go
-        uses: actions/setup-go@v4
+      - uses: actions/setup-go@v4
         with:
-          go-version: '1.19'
-          check-latest: true
-
-      - name: Verify Go version
-        run: go version          
-
-      - name: Download dependencies
-        run: |
-          cd src
-          go mod download
-          go build ./...
+          go-version: '1.24'
 
       - name: Lint Go code
         uses: golangci/golangci-lint-action@v3
         with:
-          version: v1.54
+          version: v1.54.2
           working-directory: src
-          args: --timeout=3m
 
       - name: Lint Dockerfile
         uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: Dockerfile
 
-  build:
-    name: Build Local Docker Image for Testing
+  build-test-push:
+    name: Build, Test, Scan, Push
+    runs-on: ubuntu-latest
     needs: lint
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-
-      - name: Build Docker image (amd64 only, local)
-        run: |
-          docker buildx build \
-            --platform linux/amd64 \
-            -t recipe-api:local \
-            --load .
-
-  scan:
-    name: Scan Image + Update Go Dependencies
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-
-      - name: Build Docker image for scan (local)
-        run: |
-          docker buildx build \
-            --platform linux/amd64 \
-            -t recipe-api:local \
-            --load .
-
-      - name: Install Trivy
-        run: |
-          sudo apt-get update
-          sudo apt-get install wget apt-transport-https gnupg lsb-release -y
-          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
-          echo deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main | sudo tee /etc/apt/sources.list.d/trivy.list
-          sudo apt-get update
-          sudo apt-get install trivy -y
-
-      - name: Scan local image
-        run: trivy image recipe-api:local
-
-      - name: Update Go dependencies
-        run: |
-          cd src
-          go get -u ./...
-
-  test:
-    name: Run API Integration Tests
-    needs: scan
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:13
-        env:
-          POSTGRES_USER: test
-          POSTGRES_PASSWORD: test
-          POSTGRES_DB: recipes
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-
-      - name: Build Docker image for testing (local)
-        run: |
-          docker buildx build \
-            --platform linux/amd64 \
-            -t recipe-api:local \
-            --load .
-
-      - name: Run app container with DB env vars
-        run: |
-          docker run -d -p 8080:8080 \
-            --name recipe-api \
-            --network host \
-            -e db_host=localhost \
-            -e db_port=5432 \
-            -e db_name=recipes \
-            -e db_user=test \
-            -e db_password=test \
-            recipe-api:local
-
-      - name: Print container logs (early)
-        run: docker logs recipe-api || true
-
-      - name: Wait for app to be ready
-        run: |
-          for i in {1..10}; do
-            curl -s http://localhost:8080/recipes && echo "API is up" && exit 0
-            echo "Waiting for app to start..."
-            sleep 3
-          done
-          echo "App did not start in time." >&2
-          exit 1
-
-      - name: Run API test script
-        run: python3 api-test-example.py
-
-  push:
-    name: Build + Push Multi-Arch Docker Image to GHCR
-    needs: test
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
+      - uses: actions/setup-go@v4
+        with:
+          go-version: '1.24'
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GitHub Container Registry
+      - name: Log in to GHCR
         uses: docker/login-action@v2
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push multi-arch image to GHCR
+      - name: Build Docker image (single arch for test/scan)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          platforms: linux/amd64
+          tags: localscanimg
+
+      - name: Run services with Compose
+        run: docker compose up -d
+
+      - name: Wait for app to be ready
         run: |
-          docker buildx build \
-            --platform linux/amd64,linux/arm64 \
-            -t ghcr.io/sdx-ci-cd/recipe-api:latest \
-            --push .
+          for i in {1..10}; do
+            curl -s http://localhost:8080/recipes && echo "App is ready" && exit 0
+            echo "Waiting for app to start..."
+            sleep 3
+          done
+          echo "App did not become ready in time" && exit 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install Python deps
+        run: pip install requests
+
+      - name: Run integration test
+        run: python -m unittest api-test-example.py
+
+      - name: Update Go dependencies
+        run: |
+          cd src
+          go get -u ./...
+
+      - name: Trivy scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: localscanimg
+          severity: CRITICAL,HIGH
+          format: table
+
+      - name: Build & Push Multi-Arch Image to GHCR
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ghcr.io/sdx-ci-cd/recipe-api:latest
