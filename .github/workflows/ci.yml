@@ -1,9 +1,13 @@
-name: CI Pipeline
+# GitHub Actions CI Workflow for SDX-UE02
+# This pipeline follows the required assignment structure strictly.
+# It uses both single-arch and multi-arch Docker builds appropriately.
+
+name: CI
 
 on:
   push:
     branches:
-      - main
+      - "main"
 
 jobs:
   lint:
@@ -13,132 +17,133 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Set up Go
+      - name: Set up Go 1.19
         uses: actions/setup-go@v4
         with:
           go-version: '1.19'
 
-      - name: Lint Go code
+      - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v3
         with:
           version: v1.54.2
           working-directory: ./src
-          args: --timeout=3m
 
       - name: Lint Dockerfile
         uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: ./Dockerfile
 
-  build:
-    name: Build Multi-Arch Docker Image
+  build-test-image:
+    name: Build Single Arch Image (for test & scan)
     needs: lint
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build Docker image for testing
+      - name: Build image for testing (amd64 only)
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
-          load: true
+          platforms: linux/amd64
           tags: recipe-api:latest
+          load: true # Required for Trivy and testing inside the workflow
 
   scan:
-    name: Scan Image and Update Go Dependencies
-    needs: build
+    name: Scan Docker Image and Update Dependencies
+    needs: build-test-image
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Set up Go
+      - name: Install Trivy
+        run: |
+          sudo apt-get update && sudo apt-get install -y wget apt-transport-https gnupg lsb-release
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+          echo deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main | sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update && sudo apt-get install -y trivy
+
+      - name: Run Trivy vulnerability scan
+        run: trivy image recipe-api:latest
+
+      - name: Set up Go 1.19
         uses: actions/setup-go@v4
         with:
           go-version: '1.19'
 
       - name: Update Go dependencies
-        run: |
-          cd src
-          go get -u ./...
+        working-directory: ./src
+        run: go get -u ./...
 
-      - name: Install Trivy
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y wget apt-transport-https gnupg lsb-release
-          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
-          echo deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main | sudo tee /etc/apt/sources.list.d/trivy.list
-          sudo apt-get update
-          sudo apt-get install -y trivy
-
-      - name: Run Trivy Scan
-        run: trivy image recipe-api:latest
-
-  test:
-    name: Run Integration Tests
+  integration-test:
+    name: Run Integration Test
     needs: scan
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Start services with Docker Compose
+      - name: Start app and db using Docker Compose
         run: docker compose up -d
 
-      - name: Wait for app to become ready
+      - name: Wait for app to be ready
         run: |
           for i in {1..10}; do
-            curl -s http://localhost:8080/health && exit 0
-            echo "Waiting for app to start..."
+            if curl -s http://localhost:8080/health; then
+              echo "App is ready."
+              exit 0
+            fi
+            echo "Waiting for app to be ready..."
             sleep 3
           done
-          echo "App did not become ready in time"
+          echo "App did not become ready in time" >&2
+          docker logs recipes-app
           exit 1
 
-      - name: Set up Python
+      - name: Set up Python 3.11
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
 
-      - name: Install test dependencies
+      - name: Install Python test dependencies
         run: pip install requests
 
       - name: Run integration tests
         run: python3 api-test-example.py
 
-  push:
-    name: Push to GitHub Container Registry
-    needs: test
+  push-image:
+    name: Push Multi-Arch Docker Image to GHCR
+    needs: integration-test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Set up QEMU
+      - name: Set up QEMU (for multi-arch builds)
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GHCR
-        uses: docker/login-action@v2
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.GHCR_PAT }}
 
-      - name: Build and Push Multi-Arch Image to GHCR
+      - name: Push multi-arch Docker image
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
-          push: true
+          push: true # Only push in this final step
           tags: ghcr.io/sdx-ci-cd/recipe-api:latest
+
+# Notes:
+# - We use `load: true` for local scan/test image (single arch only)
+# - We use `push: true` with multi-arch in the final push step
