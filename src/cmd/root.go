@@ -6,7 +6,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -19,13 +18,18 @@ var rootCmd = &cobra.Command{
 	Use:   "recipe",
 	Short: "A brief description of your application",
 	Long: `A longer description that spans multiple lines and likely contains
-examples and usage of using your application.`,
+examples and usage of your application. For example:
+
+Cobra is a CLI library for Go that empowers applications.
+This application is a tool to generate the needed files
+to quickly create a Cobra application.`,
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
-// This is called by main.main().
+// This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
-	if err := rootCmd.Execute(); err != nil {
+	err := rootCmd.Execute()
+	if err != nil {
 		os.Exit(1)
 	}
 }
@@ -33,42 +37,53 @@ func Execute() {
 func init() {
 	cobra.OnInitialize(initConfig)
 
+	// Define config file flag
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.recipe.yaml)")
+
+	// Example toggle flag
 	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }
 
 // initConfig reads in config file and ENV variables if set.
 func initConfig() {
-	// Enable env variable parsing
-	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-	viper.AutomaticEnv()
+	if cfgFile != "" {
+		// Use config file from the flag.
+		viper.SetConfigFile(cfgFile)
+	} else {
+		// Find home directory.
+		home, err := os.UserHomeDir()
+		cobra.CheckErr(err)
 
-	// Explicitly bind lowercase env vars for Docker compatibility
-	viper.BindEnv("db_host", "db_host")
-	viper.BindEnv("db_port", "db_port")
-	viper.BindEnv("db_user", "db_user")
-	viper.BindEnv("db_password", "db_password")
-	viper.BindEnv("db_name", "db_name")
+		// Search config in home directory with name ".recipe" (without extension).
+		viper.AddConfigPath(home)
+		viper.SetConfigType("yaml")
+		viper.SetConfigName(".recipe")
+	}
 
-	// Defaults (used if env not set)
+	viper.AutomaticEnv() // read in environment variables that match
+
+	// Set default values
 	viper.SetDefault("db_host", "localhost")
 	viper.SetDefault("db_port", "5432")
 	viper.SetDefault("db_name", "postgres")
 	viper.SetDefault("db_user", "postgres")
 	viper.SetDefault("db_password", "postgres")
 
-	// Optional config file
-	if cfgFile != "" {
-		viper.SetConfigFile(cfgFile)
-	} else {
-		home, err := os.UserHomeDir()
-		cobra.CheckErr(err)
-		viper.AddConfigPath(home)
-		viper.SetConfigType("yaml")
-		viper.SetConfigName(".recipe")
+	// Bind environment variables with error checking
+	mustBind := func(key, env string) {
+		if err := viper.BindEnv(key, env); err != nil {
+			fmt.Fprintf(os.Stderr, "Error binding env var %s: %v\n", env, err)
+			os.Exit(1)
+		}
 	}
 
-	// Load config file if present
+	mustBind("db_host", "db_host")
+	mustBind("db_port", "db_port")
+	mustBind("db_user", "db_user")
+	mustBind("db_password", "db_password")
+	mustBind("db_name", "db_name")
+
+	// Read config file (optional)
 	if err := viper.ReadInConfig(); err == nil {
 		fmt.Fprintln(os.Stderr, "Using config file:", viper.ConfigFileUsed())
 	}
