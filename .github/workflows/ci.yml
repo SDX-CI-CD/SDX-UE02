@@ -18,11 +18,13 @@ jobs:
         uses: actions/checkout@v3
         
       - name: Set up Go 1.19
+        # Use Go 1.19 to match the project source compatibility
         uses: actions/setup-go@v4
         with:
           go-version: '1.19'
 
       - name: Run golangci-lint
+        # Run linter on Go code inside ./src
         uses: golangci/golangci-lint-action@v3
         with:
           version: v1.54.2
@@ -42,15 +44,17 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Set up Docker Buildx
+        # Enable Docker multi-platform builds      
         uses: docker/setup-buildx-action@v3
 
       - name: Build image for testing (amd64 only, local)
+        # Build a single-arch (amd64) image and keep it local for scanning/testing      
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64
           tags: recipe-api:latest
-          load: true  # Makes image available for Trivy in this job
+          load: true  # Required so Trivy and Docker Compose can access the image
 
       - name: Install Trivy
         run: |
@@ -62,14 +66,17 @@ jobs:
           sudo apt-get install -y trivy
 
       - name: Run Trivy vulnerability scan
+        # Run vulnerability scan using the Trivy scanner on the built image      
         run: trivy image --scanners vuln recipe-api:latest
 
       - name: Set up Go 1.23 (for updating dependencies only)
+        # Use a newer Go version temporarily for compatibility with latest dependencies      
         uses: actions/setup-go@v4
         with:
           go-version: '1.23'
 
       - name: Update Go dependencies
+        # Update all Go dependencies to their latest compatible versions      
         working-directory: ./src
         run: go get -u ./...
 
@@ -82,6 +89,7 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Start app and db using Docker Compose
+        # Launch application and database defined in docker-compose.yml      
         run: docker compose up -d
 
       - name: Wait for app to be ready
@@ -118,12 +126,14 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Set up QEMU (for multi-arch builds)
+        # Required to emulate and build for multiple architectures      
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GitHub Container Registry
+        # Login to GHCR using token stored in repository secrets      
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -131,14 +141,10 @@ jobs:
           password: ${{ secrets.GHCR_PAT }}
 
       - name: Push multi-arch Docker image
+        # Build and push image for both amd64 and arm64 to GitHub Container Registry      
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ghcr.io/sdx-ci-cd/recipe-api:latest
-
-
-# Notes:
-# - We use `load: true` for local scan/test image (single arch only)
-# - We use `push: true` with multi-arch in the final push step
