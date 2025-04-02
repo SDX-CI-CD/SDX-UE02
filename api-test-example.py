@@ -8,21 +8,26 @@ class TestRecipeAPI(unittest.TestCase):
         # Sample recipe to create
         new_recipe = {
             "name": "Test Pancakes",
-            "ingredients": ["flour", "milk", "eggs"],
-            "instructions": "Mix and fry it."
+            "description": "Fluffy and delicious.",
+            "ingredients": ["flour", "milk", "eggs"]
         }
 
         # POST: Create new recipe
         post_response = requests.post(self.API_URL, json=new_recipe)
-        self.assertEqual(post_response.status_code, 201)
+        self.assertEqual(post_response.status_code, 201, f"Expected 201, got {post_response.status_code}")
+        created_recipe = post_response.json()
+        self.assertEqual(created_recipe["name"], new_recipe["name"])
 
         # GET: Fetch all recipes
         get_response = requests.get(self.API_URL)
         self.assertEqual(get_response.status_code, 200)
+        recipes = get_response.json()
 
         # Check if our recipe is in the list
-        recipes = get_response.json()
-        self.assertTrue(any(r["name"] == "Test Pancakes" for r in recipes))
+        self.assertTrue(
+            any(r["name"] == new_recipe["name"] for r in recipes),
+            "Created recipe not found in recipe list."
+        )
 
     def test_get_all_recipes(self):
         response = requests.get(self.API_URL)
@@ -31,4 +36,3 @@ class TestRecipeAPI(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
-
